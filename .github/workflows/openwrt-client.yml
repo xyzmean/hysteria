@@ -1,0 +1,51 @@
+name: "Build OpenWRT client"
+
+# Builds a client-only Hysteria binary (server command stripped via the
+# "noserver" build tag) for the architectures commonly found on OpenWRT
+# routers. MediaTek Filogic boards (MT7981/MT7986/MT7988) are arm64, so the
+# linux/arm64 artifact is the one to use there.
+# See scripts/openwrt/README.md for deployment instructions.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Platforms to build (comma separated, e.g. linux/arm64,linux/mipsle-sf)"
+        required: false
+        default: "linux/arm64,linux/arm,linux/mipsle,linux/mipsle-sf,linux/mips,linux/mips-sf,linux/386,linux/amd64"
+
+jobs:
+  build:
+    name: Build client-only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+
+      - name: Setup Python # This is for the build script
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Run build script
+        env:
+          HY_APP_PLATFORMS: ${{ github.event.inputs.platforms }}
+          HY_APP_TAGS: "noserver"
+        run: python hyperbole.py build -r
+
+      - name: Generate hashes
+        run: |
+          for file in build/*; do
+            sha256sum "$file" >> build/hashes.txt
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: hysteria-openwrt-client-${{ github.sha }}
+          path: build/

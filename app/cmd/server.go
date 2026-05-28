@@ -1,3 +1,10 @@
+//go:build !noserver
+
+// The server command (and its heavy ACME/certmagic/libdns dependency tree) is
+// excluded when building with the "noserver" tag, producing a smaller
+// client-only binary suitable for embedded targets such as OpenWRT routers.
+// See scripts/openwrt/README.md for details.
+
 package cmd
 
 import (
