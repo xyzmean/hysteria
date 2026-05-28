@@ -14,6 +14,8 @@ import shutil
 #   - HY_APP_VERSION: App version
 #   - HY_APP_COMMIT: App commit hash
 #   - HY_APP_PLATFORMS: Platforms to build for (e.g. "windows/amd64,linux/arm")
+#   - HY_APP_TAGS: Extra Go build tags, comma or space separated
+#                  (e.g. "noserver" for a smaller client-only binary)
 
 
 LOGO = """
@@ -282,9 +284,16 @@ def cmd_build(pprof=False, release=False, race=False):
             "-ldflags",
             " ".join(plat_ldflags),
         ]
+        build_tags = []
         if pprof:
+            build_tags.append("pprof")
+        extra_tags = os.environ.get("HY_APP_TAGS", "")
+        for tag in extra_tags.replace(",", " ").split():
+            if tag and tag not in build_tags:
+                build_tags.append(tag)
+        if build_tags:
             cmd.append("-tags")
-            cmd.append("pprof")
+            cmd.append(",".join(build_tags))
         if race:
             cmd.append("-race")
         if release:
