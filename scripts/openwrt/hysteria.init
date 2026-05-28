@@ -1,0 +1,46 @@
+#!/bin/sh /etc/rc.common
+# OpenWRT procd init script for the Hysteria client (TUN mode).
+#
+# Install:
+#   cp hysteria            /usr/bin/hysteria      # the client-only binary
+#   cp client.yaml         /etc/hysteria/config.yaml
+#   cp hysteria.init       /etc/init.d/hysteria
+#   chmod +x /usr/bin/hysteria /etc/init.d/hysteria
+#   /etc/init.d/hysteria enable
+#   /etc/init.d/hysteria start
+
+START=99
+USE_PROCD=1
+
+PROG=/usr/bin/hysteria
+CONF=/etc/hysteria/config.yaml
+
+# --- Memory tuning -----------------------------------------------------------
+# GOMEMLIMIT makes the Go runtime treat this as a soft memory ceiling and run
+# the GC aggressively as usage approaches it. This is the most effective lever
+# for keeping RSS bounded when many connections come and go. GOGC=20 trades a
+# little CPU for a much smaller heap headroom (default GOGC=100 lets the heap
+# roughly double between collections). Raise GOMEMLIMIT if you have more RAM.
+GOMEMLIMIT_VALUE="64MiB"
+GOGC_VALUE="20"
+
+start_service() {
+    procd_open_instance hysteria
+    procd_set_param command "$PROG" client -c "$CONF"
+
+    # Environment for the Go runtime.
+    procd_set_param env \
+        GOMEMLIMIT="$GOMEMLIMIT_VALUE" \
+        GOGC="$GOGC_VALUE" \
+        HYSTERIA_DISABLE_UPDATE_CHECK=1
+
+    procd_set_param respawn          # restart if it dies
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_set_param limits nofile="65535 65535"
+    procd_close_instance
+}
+
+service_triggers() {
+    procd_add_reload_trigger "hysteria"
+}

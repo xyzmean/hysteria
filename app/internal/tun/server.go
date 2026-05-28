@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 
 	tun "github.com/apernet/sing-tun"
 	"github.com/sagernet/sing/common/buf"
@@ -102,6 +103,32 @@ type tunHandler struct {
 
 var _ tun.Handler = (*tunHandler)(nil)
 
+// tcpCopyBufferSize is the size of the buffer used to relay data between the
+// TUN-side connection and the Hysteria stream. The standard library's io.Copy
+// allocates a fresh 32 KB buffer per call; in TUN mode every forwarded TCP
+// connection runs two such copies, so on devices that proxy traffic for a whole
+// LAN (where a single web page can spawn dozens of connections) this churns a
+// lot of short-lived allocations. We use a smaller buffer drawn from a pool to
+// keep memory proportional to concurrently active transfers and to relieve GC
+// pressure on memory-constrained targets such as OpenWRT routers. 16 KB is
+// still many MTUs wide, so throughput is unaffected in practice.
+const tcpCopyBufferSize = 16 * 1024
+
+var tcpCopyBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, tcpCopyBufferSize)
+		return &b
+	},
+}
+
+// copyWithPooledBuffer relays src into dst reusing a pooled buffer. The buffer
+// is returned to the pool once the copy finishes.
+func copyWithPooledBuffer(dst io.Writer, src io.Reader) (int64, error) {
+	bufp := tcpCopyBufferPool.Get().(*[]byte)
+	defer tcpCopyBufferPool.Put(bufp)
+	return io.CopyBuffer(dst, src, *bufp)
+}
+
 func (t *tunHandler) NewConnection(ctx context.Context, conn net.Conn, m metadata.Metadata) error {
 	addr := m.Source.String()
 	reqAddr := m.Destination.String()
@@ -125,11 +152,11 @@ func (t *tunHandler) NewConnection(ctx context.Context, conn net.Conn, m metadat
 	// start forwarding
 	copyErrChan := make(chan error, 2)
 	go func() {
-		_, copyErr := io.Copy(rc, conn)
+		_, copyErr := copyWithPooledBuffer(rc, conn)
 		copyErrChan <- copyErr
 	}()
 	go func() {
-		_, copyErr := io.Copy(conn, rc)
+		_, copyErr := copyWithPooledBuffer(conn, rc)
 		copyErrChan <- copyErr
 	}()
 	select {

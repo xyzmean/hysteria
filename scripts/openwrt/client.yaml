@@ -1,0 +1,55 @@
+# Hysteria client configuration tuned for low-memory OpenWRT routers
+# (e.g. arm64 / MediaTek Filogic boards with 256 MB RAM) running in TUN mode.
+#
+# In TUN mode the router proxies the whole LAN, and every TCP/UDP flow becomes a
+# separate QUIC stream with its own state and buffers. Memory therefore scales
+# with the number of concurrent connections. The values below keep that bounded.
+# See README.md in this directory for the reasoning behind each setting.
+
+server: your.server.example.com:443
+
+auth: your_password_here
+
+tls:
+  sni: your.server.example.com
+  # Set a pinned cert or your own CA in production instead of insecure: true.
+  # insecure: true
+
+# QUIC receive windows are the single biggest knob for RAM use.
+# The connection window is a hard ceiling on how much received-but-unread data
+# can be buffered across ALL streams at once, so it bounds memory regardless of
+# how many connections are open. Smaller windows cap throughput on high
+# latency*bandwidth links but are the right trade-off on a 256 MB router.
+quic:
+  initStreamReceiveWindow: 2097152   # 2 MB  (default 8 MB)
+  maxStreamReceiveWindow: 2097152    # 2 MB  (default 8 MB)
+  initConnReceiveWindow: 4194304     # 4 MB  (default 20 MB)
+  maxConnReceiveWindow: 4194304      # 4 MB  (default 20 MB)
+  maxIdleTimeout: 30s
+  keepAlivePeriod: 10s
+
+# Optional: set your real line speed to enable the Brutal congestion control.
+# Leave commented out to use the built-in BBR, which adapts on its own and is
+# easier on memory. Do NOT set these higher than your actual bandwidth.
+# bandwidth:
+#   up: 50 mbps
+#   down: 200 mbps
+
+# Don't dial the server until the first connection arrives.
+lazy: true
+
+tun:
+  name: hytun
+  mtu: 1500
+  # Reclaim idle UDP/TCP sessions quickly so their buffers and goroutines are
+  # freed. Lower = less memory held for dead flows, at the cost of re-opening
+  # sessions that go briefly silent.
+  timeout: 60s
+  address:
+    ipv4: 100.100.100.101/30
+    ipv6: 2001::ffff:ffff:ffff:fff1/126
+  route:
+    # Route everything through the tunnel. Add ipv4Exclude/ipv6Exclude for
+    # local subnets or the server IP if you set up routing manually.
+    ipv4: [ 0.0.0.0/0 ]
+    ipv6: [ "2000::/3" ]
